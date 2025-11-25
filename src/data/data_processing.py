@@ -1,22 +1,9 @@
 """Data Processing Functions and Logic"""
 from pathlib import Path
-from typing import Callable
 import pandas as pd
 from pandas import DataFrame
 
-
-def lazy(func: Callable) -> property:
-    """Decorator for caching properties after first load."""
-    attr_name = f"_{func.__name__}"
-
-    @property
-    def _lazy(self):
-        """Gets attribute if it exists otherwise it sets the attribute"""
-        if not hasattr(self, attr_name):
-            setattr(self, attr_name, func(self))
-        return getattr(self, attr_name)
-
-    return _lazy
+from .src.data.utils import lazy
 
 
 class DataLoader:
@@ -46,7 +33,7 @@ class DataLoader:
         """
         self.year = year
         self.gender = "M" if men else "W"
-        self.project_root = Path().resolve().parent.parent
+        self.project_root = Path().resolve().parent
 
     def _load(self, file_constant: str) -> DataFrame:
         """Internal helper to load a CSV file by name constant."""
@@ -108,6 +95,7 @@ class DataLoader:
     # -----------------------------
     # Preprocessing Pipeline
     # -----------------------------
+
     def preprocess(self) -> DataFrame:
         """Run all preprocessing steps and cache processed data."""
         data = self.data.copy()
@@ -119,6 +107,7 @@ class DataLoader:
             self._minutes,
             self._create_team_game_stats,
             self._duplicate_and_flip_teams,
+            self._merge_coaches,
         ]
 
         for step in steps:
@@ -200,6 +189,27 @@ class DataLoader:
 
         data_flipped.Loc = data_flipped.Loc.apply(self._loser_loc_change)
         return pd.concat([data, data_flipped], ignore_index=True)
+
+    def _merge_coaches(self, data: DataFrame) -> DataFrame:
+        """Merge Coaches data on"""
+        for team in ["team", "opponent"]:
+            data = data.merge(
+                self.coaches,
+                left_on=["Season", f"{team}_TeamID"],
+                right_on=["Season", "TeamID"],
+                how="left",
+            )
+
+            # Filter where DayNum falls within the range
+            data = data[
+                (data["DayNum"] >= data["FirstDayNum"])
+                & (data["DayNum"] <= data["LastDayNum"])
+            ]
+
+            data = data.rename(columns={"CoachName": f"{team}_CoachName"})
+            data = data.drop(columns=["FirstDayNum", "LastDayNum", "TeamID"])
+
+        return data
 
     @lazy
     def processed_data(self):
