@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 from pandas import DataFrame
 
-from .src.data.utils import lazy
+from .utils import lazy
 
 
 class DataLoader:
@@ -20,20 +20,32 @@ class DataLoader:
     TOURNEY_SEEDS_FILE = "NCAATourneySeeds"
     TOURNEY_SLOTS_FILE = "NCAATourneySlots"
 
-    def __init__(self, year: int = 2025, men: bool = True) -> None:
+    def __init__(self, year: int = 2025, men: bool = True, refresh: bool = False) -> None:
         """
         Initializes `DataLoader` for a certain data pull year and gender
 
         Args:
             year: Year of the data pull
             men: boolean on if you want Mens (`True`) or Women's (`False`)
+            refresh: if `True`, re-run preprocessing even if an interim file exists
 
         Returns:
             `None`, but initilaizes dataloader object
         """
         self.year = year
         self.gender = "M" if men else "W"
-        self.project_root = Path().resolve().parent
+        self.refresh = refresh
+        self.project_root = Path(__file__).resolve().parent.parent.parent
+
+    @property
+    def _interim_path(self) -> Path:
+        """Path to the interim cached CSV for this year/gender."""
+        return (
+            self.project_root
+            / "data"
+            / "interim"
+            / f"{self.gender}{self.year}_formatted_data.csv"
+        )
 
     def _load(self, file_constant: str) -> DataFrame:
         """Internal helper to load a CSV file by name constant."""
@@ -213,8 +225,19 @@ class DataLoader:
 
     @lazy
     def processed_data(self):
-        """processed and formatted games data."""
-        return self.preprocess()
+        """processed and formatted games data.
+
+        Loads from the interim CSV if it exists and `refresh=False`.
+        Otherwise runs the full preprocessing pipeline and writes the result
+        to the interim file for future use.
+        """
+        if not self.refresh and self._interim_path.exists():
+            print(f"Loading cached interim data from: {self._interim_path}")
+            return pd.read_csv(self._interim_path)
+
+        data = self.preprocess()
+        self._write(data)
+        return data
 
     @property
     def regular_season_data(self) -> DataFrame:
@@ -226,13 +249,12 @@ class DataLoader:
         """processed and formatted tournament games data."""
         return self.processed_data.loc[self.processed_data["Tournament"]].copy()
 
+    def _write(self, data: DataFrame) -> None:
+        """Write a DataFrame to the interim file."""
+        self._interim_path.parent.mkdir(parents=True, exist_ok=True)
+        data.to_csv(self._interim_path, index=False)
+        print(f"Wrote data to: {self._interim_path}")
+
     def write_processed_data(self) -> None:
-        """pWrite data to interim table"""
-        path = (
-            self.project_root
-            / "data"
-            / "interim"
-            / f"{self.gender}{self.year}_formatted_data.csv"
-        )
-        self.processed_data.to_csv(path, index=False)
-        print(f"Wrote data to: {path}")
+        """Explicitly write processed data to the interim file."""
+        self._write(self.processed_data)
