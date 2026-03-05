@@ -84,7 +84,10 @@ class DataLoader:
     @lazy
     def coaches(self):
         """Coaches data coach names and teams they coached for."""
-        return self._load(self.COACHES_FILE)
+        try:
+            return self._load(self.COACHES_FILE)
+        except FileNotFoundError:
+            return pd.DataFrame(columns=["Season", "TeamID", "FirstDayNum", "LastDayNum", "CoachName"])
 
     @lazy
     def conferences(self):
